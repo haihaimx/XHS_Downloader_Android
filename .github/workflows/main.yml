@@ -3,7 +3,7 @@ name: Android Auto Build & Release
 on:
   push:
     tags:
-      - 'v*'       # 例如：v1.0.0 时触发
+      - 'v*'
   workflow_dispatch:
 
 jobs:
