@@ -138,6 +138,7 @@ class MainActivity : ComponentActivity() {
                     onCopyText = { ensureStoragePermission { viewModel.copyDescription({ showToast("已复制文案") }, { showToast(it) }) } },
                     onOpenSettings = { startActivity(Intent(this, SettingsActivity::class.java)) },
                     onOpenWeb = { openWebCrawl(uiState.urlInput) },
+                    onContinueDownload = { viewModel.continueAfterVideoWarning() },
                     onMediaClick = { openFile(it) },
                     selectedTab = selectedTab,
                     onTabChange = { selectedTab = it },
@@ -273,6 +274,7 @@ private fun MainScreen(
     onCopyText: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenWeb: () -> Unit,
+    onContinueDownload: () -> Unit,
     onMediaClick: (MediaItem) -> Unit,
     selectedTab: Int,
     onTabChange: (Int) -> Unit,
@@ -297,7 +299,7 @@ private fun MainScreen(
         topBar = {
             TopAppBar(
                 title = "小红书下载器",
-                largeTitle = "小红书下载器 $versionLabel",
+                largeTitle = "小红书下载器",
                 scrollBehavior = scrollBehavior,
                 actions = {
                     Icon(
@@ -338,6 +340,7 @@ private fun MainScreen(
                 statusListState = statusListState,
                 scrollBehavior = scrollBehavior,
                 onOpenWeb = onOpenWeb,
+                onContinueDownload = onContinueDownload,
                 modifier = Modifier
                     .fillMaxSize()
                     .nestedScroll(scrollBehavior.nestedScrollConnection)
@@ -454,6 +457,7 @@ private fun HomePage(
 private fun LogPage(
     uiState: MainUiState,
     onOpenWeb: () -> Unit,
+    onContinueDownload: () -> Unit,
     statusListState: androidx.compose.foundation.lazy.LazyListState,
     scrollBehavior: ScrollBehavior,
     modifier: Modifier = Modifier
@@ -542,6 +546,30 @@ private fun LogPage(
                     colors = ButtonDefaults.buttonColors()
                 ) {
                     Text("JSON 解析失败？试试网页模式")
+                }
+            }
+
+            if (uiState.showVideoWarning) {
+                Row(modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    TextButton(
+                        text = "仍然下载",
+                        onClick = onContinueDownload,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Button(
+                        onClick = onOpenWeb,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColorsPrimary()
+                    ) {
+                        Text(
+                            text = "网页爬取模式",
+                            color = Color.White
+                        )
+                    }
                 }
             }
         }

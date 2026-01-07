@@ -354,17 +354,28 @@ private fun SettingsScreen(
             }
             item {
                 SmallTitle(text = "关于")
-//                Card(
-//                    modifier = Modifier
-//                        .fillMaxWidth()
-//                        .padding(start = 16.dp, end = 16.dp),
-//                    cornerRadius = 18.dp,
-//                    colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.background)
-//                ) {
-//                    Column(
-//                        modifier = Modifier.padding(16.dp),
-//                        verticalArrangement = Arrangement.spacedBy(12.dp)
-//                    ) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 16.dp, end = 16.dp),
+                    cornerRadius = 18.dp,
+                    colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.background)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(text = "版本号")
+                            Text(text = "v${BuildConfig.VERSION_NAME}", color = Color.Gray)
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
                         Button(
                             onClick = {
                                 val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/NEORUAA/XHS_Downloader_Android"))
@@ -384,8 +395,7 @@ private fun SettingsScreen(
                                 color = Color.White
                             )
                         }
-//                    }
-//                }
+
             }
         }
     }

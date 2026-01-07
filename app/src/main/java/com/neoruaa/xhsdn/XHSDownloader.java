@@ -53,6 +53,15 @@ public class XHSDownloader {
     private static final java.util.regex.Pattern NAMING_PLACEHOLDER_PATTERN = java.util.regex.Pattern.compile("\\{([^}]+)\\}");
     private static final long MIN_VALID_EPOCH_MS = 946684800000L; // 2000-01-01
 
+    // Flag to track if videos have been detected in the current download
+    private boolean videosDetected = false;
+    // Flag to track if video warning has already been shown to avoid repeated warnings
+    private boolean videoWarningShown = false;
+    // Flag to control if download should stop when video is detected
+    private volatile boolean shouldStopOnVideo = false;
+    // Flag to indicate if download should be stopped
+    private volatile boolean shouldStopDownload = false;
+
     public XHSDownloader(Context context) {
         this(context, null);
     }
@@ -74,7 +83,7 @@ public class XHSDownloader {
                 public void onDownloadError(String status, String originalUrl) {
                     callback.onDownloadError(status, originalUrl);
                 }
-                
+
                 @Override
                 public void onDownloadProgress(String status) {
                     callback.onDownloadProgress(status);
@@ -83,6 +92,11 @@ public class XHSDownloader {
                 @Override
                 public void onDownloadProgressUpdate(long downloaded, long total) {
                     callback.onDownloadProgressUpdate(downloaded, total);
+                }
+
+                @Override
+                public void onVideoDetected() {
+                    callback.onVideoDetected();
                 }
             };
         } else {
@@ -108,6 +122,12 @@ public class XHSDownloader {
         boolean hasErrors = false; // Track if any errors occurred
         boolean hasContent = false; // Track if we found any content to download
         try {
+            // Check if download should stop
+            if (shouldStop()) {
+                Log.d(TAG, "Download stopped by user request");
+                return false;
+            }
+
             // Extract all valid XHS URLs from the input
             List<String> urls = extractLinks(inputUrl);
 
@@ -126,6 +146,14 @@ public class XHSDownloader {
             this.customFormatTemplate = getCustomNamingTemplate();
 
             for (String url : urls) {
+                // Check if download should stop
+                try {
+                    checkForStop();
+                } catch (InterruptedException e) {
+                    Log.d(TAG, "Download stopped by user request during URL processing");
+                    return false;
+                }
+
                 // Get the post ID from the URL
                 String postId = extractPostId(url);
 
@@ -169,14 +197,22 @@ public class XHSDownloader {
                         if (!mediaUrls.isEmpty()) {
                             hasContent = true; // We found media to download
                             Log.d(TAG, "Found " + mediaUrls.size() + " media URLs in post: " + postId);
-                            
+
+                            // Check if download should stop
+                            try {
+                                checkForStop();
+                            } catch (InterruptedException e) {
+                                Log.d(TAG, "Download stopped by user request after parsing media URLs");
+                                return false;
+                            }
+
                             // Check if we should create live photos
                             boolean createLivePhotos = shouldCreateLivePhotos();
-                            
+
                             // Separate images and videos for potential live photo creation
                             List<String> imageUrls = new ArrayList<>();
                             List<String> videoUrls = new ArrayList<>();
-                            
+
                             for (String mediaUrl : mediaUrls) {
                                 if (isVideoUrl(mediaUrl)) {
                                     videoUrls.add(mediaUrl);
@@ -230,6 +266,15 @@ public class XHSDownloader {
                                     
                                     // Wait for all downloads to complete and collect results
                                     for (int i = 0; i < futures.size(); i++) {
+                                        // Check if download should stop
+                                        try {
+                                            checkForStop();
+                                        } catch (InterruptedException e) {
+                                            Log.d(TAG, "Download stopped by user request during concurrent download");
+                                            executor.shutdownNow(); // Stop all running tasks
+                                            return false;
+                                        }
+
                                         try {
                                             boolean success = futures.get(i).get();
                                             String mediaUrl = allMediaUrls.get(i);
@@ -271,13 +316,21 @@ public class XHSDownloader {
                                 } else {
                                     // Single file download - keep existing behavior
                                     for (int i = 0; i < allMediaUrls.size(); i++) {
+                                        // Check if download should stop
+                                        try {
+                                            checkForStop();
+                                        } catch (InterruptedException e) {
+                                            Log.d(TAG, "Download stopped by user request during single file download");
+                                            return false;
+                                        }
+
                                         String mediaUrl = allMediaUrls.get(i);
                                         String baseFileName = buildFileBaseName(postId, i + 1);
-                                        
+
                                         // Determine file extension based on URL content
                                         String fileExtension = determineFileExtension(mediaUrl);
                                         String fileNameWithExtension = baseFileName + "." + fileExtension;
-                                        
+
                                         boolean success = downloadFile(mediaUrl, fileNameWithExtension, sessionTimestamp);
                                         if (!success) {
                                             Log.e(TAG, "Failed to download: " + mediaUrl);
@@ -740,6 +793,12 @@ public class XHSDownloader {
                     String videoUrl = "https://sns-video-bd.xhscdn.com/" + originVideoKey;
                     Log.d(TAG, "Extracted video URL: " + videoUrl);
                     mediaUrls.add(videoUrl);
+                    // Mark that videos have been detected
+                    videosDetected = true;
+                    if (shouldStopOnVideo && downloadCallback != null && !videoWarningShown) {
+                        videoWarningShown = true;
+                        downloadCallback.onVideoDetected();
+                    }
                 }
                 // 备用方案：检查media.stream.h264
                 else if (video.has("media")) {
@@ -758,6 +817,12 @@ public class XHSDownloader {
                                     if (url.startsWith("http")) {
                                         Log.d(TAG, "Extracted video URL from h264 string: " + url);
                                         mediaUrls.add(url);
+                                        // Mark that videos have been detected
+                                        videosDetected = true;
+                                        if (shouldStopOnVideo && downloadCallback != null && !videoWarningShown) {
+                                            videoWarningShown = true;
+                                            downloadCallback.onVideoDetected();
+                                        }
                                     }
                                 } else if (h264Obj instanceof JSONObject) {
                                     JSONObject h264Json = (JSONObject) h264Obj;
@@ -765,9 +830,21 @@ public class XHSDownloader {
                                     if (h264Json.has("url")) {
                                         Log.d(TAG, "Extracted video URL from h264.url: " + h264Json.getString("url"));
                                         mediaUrls.add(h264Json.getString("url"));
+                                        // Mark that videos have been detected
+                                        videosDetected = true;
+                                        if (shouldStopOnVideo && downloadCallback != null && !videoWarningShown) {
+                                            videoWarningShown = true;
+                                            downloadCallback.onVideoDetected();
+                                        }
                                     } else if (h264Json.has("masterUrl")) {
                                         Log.d(TAG, "Extracted video URL from h264.masterUrl: " + h264Json.getString("masterUrl"));
                                         mediaUrls.add(h264Json.getString("masterUrl"));
+                                        // Mark that videos have been detected
+                                        videosDetected = true;
+                                        if (shouldStopOnVideo && downloadCallback != null && !videoWarningShown) {
+                                            videoWarningShown = true;
+                                            downloadCallback.onVideoDetected();
+                                        }
                                     }
                                 }
                             }
@@ -848,6 +925,9 @@ public class XHSDownloader {
                         if (livePhotoVideoUrl != null) {
                             Log.d(TAG, "Matched live photo: image=" + imageUrl + ", video=" + livePhotoVideoUrl);
                             mediaPairs.add(new MediaPair(imageUrl, livePhotoVideoUrl, true)); // paired live photo with original URLs
+                            // For live photos, we don't trigger video warning since they are legitimate image+video pairs
+                            // Mark that videos have been detected but don't show warning
+                            videosDetected = true;
                         } else {
                             mediaPairs.add(new MediaPair(imageUrl, null, false)); // single image with original URL
                         }
@@ -1041,6 +1121,14 @@ public class XHSDownloader {
             String url = urlMatcher.group();
             if (!urls.contains(url) && isValidMediaUrl(url)) {
                 urls.add(url);
+                // Check if this is a video URL and mark it if so
+                if (isVideoUrl(url)) {
+                    videosDetected = true;
+                    if (shouldStopOnVideo && downloadCallback != null && !videoWarningShown) {
+                        videoWarningShown = true;
+                        downloadCallback.onVideoDetected();
+                    }
+                }
             }
         }
         
@@ -1892,4 +1980,44 @@ public class XHSDownloader {
             return null;
         }
     }
+
+    public boolean hasVideosDetected() {
+        return videosDetected;
+    }
+
+    public void resetVideosDetected() {
+        videosDetected = false;
+        videoWarningShown = false;
+    }
+
+    public void setShouldStopOnVideo(boolean shouldStop) {
+        this.shouldStopOnVideo = shouldStop;
+    }
+
+    public void stopDownload() {
+        this.shouldStopDownload = true;
+    }
+
+    public boolean shouldStopDownload() {
+        return shouldStopDownload;
+    }
+
+    public void resetStopDownload() {
+        this.shouldStopDownload = false;
+    }
+
+    protected void checkForStop() throws InterruptedException {
+        if (shouldStopDownload) {
+            throw new InterruptedException("Download stopped by user request");
+        }
+        if (Thread.currentThread().isInterrupted()) {
+            throw new InterruptedException("Download thread was interrupted");
+        }
+    }
+
+    protected boolean shouldStop() {
+        return shouldStopDownload || Thread.currentThread().isInterrupted();
+    }
+
+
 }
